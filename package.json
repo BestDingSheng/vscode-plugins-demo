@@ -9,6 +9,10 @@
   "categories": [
     "Other"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BestDingSheng/vscode-plugins-demo.git"
+  },
   "activationEvents": [
     "onCommand:component-replacer.replaceComponents"
   ],
@@ -39,6 +43,7 @@
     "test": "node ./out/test/runTest.js"
   },
   "devDependencies": {
+    "@types/babel__traverse": "^7.20.6",
     "@types/mocha": "^10.0.10",
     "@types/node": "^20.10.4",
     "@types/vscode": "^1.95.0",
@@ -46,5 +51,12 @@
     "@typescript-eslint/parser": "^4.26.0",
     "eslint": "^7.27.0",
     "typescript": "^4.3.2"
+  },
+  "dependencies": {
+    "@babel/generator": "^7.26.2",
+    "@babel/parser": "^7.26.2",
+    "@babel/traverse": "^7.25.9",
+    "@babel/types": "^7.26.0",
+    "prettier": "^3.4.0"
   }
 }
