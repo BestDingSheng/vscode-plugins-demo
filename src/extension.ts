@@ -5,18 +5,22 @@ import traverse, { NodePath } from '@babel/traverse';
 import * as t from '@babel/types';
 import * as prettier from 'prettier';
 
-// 定义组件替换规则的接口
+// 更新组件替换规则的接口
 interface ComponentReplaceRule {
-  from: string;
+  from: {
+    name: string;
+    property?: string;
+  };
   to: string;
   importFrom: string;
 }
 
-// 定义组件替换规则
+// 更新组件替换规则
 const componentReplaceRules: ComponentReplaceRule[] = [
-  { from: 'Input', to: 'InputOutLineExt', importFrom: '@m-tools/antd-ext' },
-  { from: 'Select', to: 'SelectOutLineExt', importFrom: '@m-tools/antd-ext' },
-  // 在这里添加更多的替换规则
+  { from: { name: 'Input' }, to: 'InputOutLineExt', importFrom: '@m-tools/antd-ext' },
+  { from: { name: 'Select' }, to: 'SelectOutLineExt', importFrom: '@m-tools/antd-ext' },
+  { from: { name: 'DatePickerExt', property: 'RangePicker' }, to: 'RangePickerOutLineExt', importFrom: '@m-tools/antd-ext' },
+  // 可以在这里添加更多的替换规则
 ];
 
 export function activate(context: vscode.ExtensionContext) {
@@ -74,19 +78,31 @@ async function replaceAndFormatComponents(code: string): Promise<string> {
       const openingElement = path.node.openingElement;
 
       if (t.isJSXIdentifier(openingElement.name, { name: 'FormItemExt' })) {
-        const attributes = openingElement.attributes as t.JSXAttribute[];
-        const newAttributes = attributes.filter(attr => !t.isJSXIdentifier(attr.name, { name: 'label' }));
-        const nameAttr = newAttributes.find(attr => t.isJSXIdentifier(attr.name, { name: 'name' }));
-
         const childElement = path.node.children.find(child =>
-          t.isJSXElement(child) &&
-          componentReplaceRules.some(rule => rule.from === (child.openingElement.name as t.JSXIdentifier).name)
-        ) as t.JSXElement;
+          t.isJSXElement(child)
+        ) as t.JSXElement | undefined;
 
         if (childElement) {
-          const childName = (childElement.openingElement.name as t.JSXIdentifier).name;
-          const rule = componentReplaceRules.find(r => r.from === childName);
+          const rule = componentReplaceRules.find(r => {
+            if (t.isJSXIdentifier(childElement.openingElement.name)) {
+              return r.from.name === childElement.openingElement.name.name;
+            } else if (t.isJSXMemberExpression(childElement.openingElement.name)) {
+              return (
+                t.isJSXIdentifier(childElement.openingElement.name.object) &&
+                t.isJSXIdentifier(childElement.openingElement.name.property) &&
+                r.from.name === childElement.openingElement.name.object.name &&
+                r.from.property === childElement.openingElement.name.property.name
+              );
+            }
+            return false;
+          });
+
           if (rule) {
+            // 只有在找到匹配的规则时才进行替换
+            const attributes = openingElement.attributes as t.JSXAttribute[];
+            const newAttributes = attributes.filter(attr => !t.isJSXIdentifier(attr.name, { name: 'label' }));
+            const nameAttr = newAttributes.find(attr => t.isJSXIdentifier(attr.name, { name: 'name' }));
+
             childElement.openingElement.name = t.jsxIdentifier(rule.to);
             if (childElement.closingElement) {
               childElement.closingElement.name = t.jsxIdentifier(rule.to);
@@ -104,15 +120,15 @@ async function replaceAndFormatComponents(code: string): Promise<string> {
             );
 
             openingElement.attributes = newAttributes;
-          }
-        }
 
-        const closingElement = path.node.closingElement;
-        if (closingElement) {
-          closingElement.name = t.jsxMemberExpression(
-            t.jsxIdentifier('Form'),
-            t.jsxIdentifier('Item')
-          );
+            const closingElement = path.node.closingElement;
+            if (closingElement) {
+              closingElement.name = t.jsxMemberExpression(
+                t.jsxIdentifier('Form'),
+                t.jsxIdentifier('Item')
+              );
+            }
+          }
         }
       }
     },
@@ -143,10 +159,10 @@ async function replaceAndFormatComponents(code: string): Promise<string> {
   const output = generate(ast, { retainLines: true, concise: false });
   const formattedCode = await prettier.format(output.code, {
     parser: 'typescript',
-    singleQuote: false, // 使用双引号
+    singleQuote: false,
     trailingComma: 'es5',
     bracketSpacing: true,
-    jsxBracketSameLine: true, // 闭合标签放在新的一行
+    jsxBracketSameLine: true,
     semi: true,
     printWidth: 100,
   });
