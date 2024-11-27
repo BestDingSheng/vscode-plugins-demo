@@ -16,6 +16,7 @@
   "activationEvents": [
     "onCommand:component-replacer.replaceComponents"
   ],
+  "publisher": "dingsheng",
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
