@@ -2,7 +2,7 @@
   "name": "component-replacer",
   "displayName": "Component Replacer",
   "description": "Replace components in React files",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "engines": {
     "vscode": "^1.95.0"
   },
@@ -40,8 +40,9 @@
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
-    "test": "node ./out/test/runTest.js"
-  },
+    "test": "node ./out/test/runTest.js",
+    "build": "vsce package"
+    },
   "devDependencies": {
     "@types/babel__traverse": "^7.20.6",
     "@types/mocha": "^10.0.10",

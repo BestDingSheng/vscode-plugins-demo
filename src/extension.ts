@@ -5,6 +5,20 @@ import traverse, { NodePath } from '@babel/traverse';
 import * as t from '@babel/types';
 import * as prettier from 'prettier';
 
+// 定义组件替换规则的接口
+interface ComponentReplaceRule {
+  from: string;
+  to: string;
+  importFrom: string;
+}
+
+// 定义组件替换规则
+const componentReplaceRules: ComponentReplaceRule[] = [
+  { from: 'Input', to: 'InputOutLineExt', importFrom: '@m-tools/antd-ext' },
+  { from: 'Select', to: 'SelectOutLineExt', importFrom: '@m-tools/antd-ext' },
+  // 在这里添加更多的替换规则
+];
+
 export function activate(context: vscode.ExtensionContext) {
   console.log('Your extension "component-replacer" is now active!');
 
@@ -40,18 +54,21 @@ async function replaceAndFormatComponents(code: string): Promise<string> {
     plugins: ['jsx', 'typescript'],
   });
 
-  let hasInputOutLineExt = false;
-  let hasSelectOutLineExt = false;
+  const importedComponents: Set<string> = new Set();
   let antdExtImport: NodePath<t.ImportDeclaration> | null = null;
 
   traverse(ast, {
     ImportDeclaration(path: NodePath<t.ImportDeclaration>) {
-      if (path.node.source.value === '@m-tools/antd-ext') {
-        antdExtImport = path;
-        const importedComponents = path.node.specifiers.map(spec => spec.local.name);
-        hasInputOutLineExt = importedComponents.includes('InputOutLineExt');
-        hasSelectOutLineExt = importedComponents.includes('SelectOutLineExt');
-      }
+      componentReplaceRules.forEach(rule => {
+        if (path.node.source.value === rule.importFrom) {
+          antdExtImport = path;
+          path.node.specifiers.forEach(spec => {
+            if (t.isImportSpecifier(spec) && t.isIdentifier(spec.imported)) {
+              importedComponents.add(spec.imported.name);
+            }
+          });
+        }
+      });
     },
     JSXElement(path: NodePath<t.JSXElement>) {
       const openingElement = path.node.openingElement;
@@ -63,30 +80,31 @@ async function replaceAndFormatComponents(code: string): Promise<string> {
 
         const childElement = path.node.children.find(child =>
           t.isJSXElement(child) &&
-          ['Input', 'Select'].includes((child.openingElement.name as t.JSXIdentifier).name)
+          componentReplaceRules.some(rule => rule.from === (child.openingElement.name as t.JSXIdentifier).name)
         ) as t.JSXElement;
 
         if (childElement) {
           const childName = (childElement.openingElement.name as t.JSXIdentifier).name;
-          const newChildName = childName === 'Input' ? 'InputOutLineExt' : 'SelectOutLineExt';
+          const rule = componentReplaceRules.find(r => r.from === childName);
+          if (rule) {
+            childElement.openingElement.name = t.jsxIdentifier(rule.to);
+            if (childElement.closingElement) {
+              childElement.closingElement.name = t.jsxIdentifier(rule.to);
+            }
 
-          childElement.openingElement.name = t.jsxIdentifier(newChildName);
-          if (childElement.closingElement) {
-            childElement.closingElement.name = t.jsxIdentifier(newChildName);
-          }
+            if (nameAttr) {
+              childElement.openingElement.attributes.push(
+                t.jsxAttribute(t.jsxIdentifier('label'), nameAttr.value)
+              );
+            }
 
-          if (nameAttr) {
-            childElement.openingElement.attributes.push(
-              t.jsxAttribute(t.jsxIdentifier('label'), nameAttr.value)
+            openingElement.name = t.jsxMemberExpression(
+              t.jsxIdentifier('Form'),
+              t.jsxIdentifier('Item')
             );
+
+            openingElement.attributes = newAttributes;
           }
-
-          openingElement.name = t.jsxMemberExpression(
-            t.jsxIdentifier('Form'),
-            t.jsxIdentifier('Item')
-          );
-
-          openingElement.attributes = newAttributes;
         }
 
         const closingElement = path.node.closingElement;
@@ -102,21 +120,20 @@ async function replaceAndFormatComponents(code: string): Promise<string> {
 
   traverse(ast, {
     Program(path: NodePath<t.Program>) {
-      if (!hasInputOutLineExt || !hasSelectOutLineExt) {
-        const newSpecifiers: t.ImportSpecifier[] = [];
-        if (!hasInputOutLineExt) {
-          newSpecifiers.push(t.importSpecifier(t.identifier('InputOutLineExt'), t.identifier('InputOutLineExt')));
+      const newSpecifiers: t.ImportSpecifier[] = [];
+      componentReplaceRules.forEach(rule => {
+        if (!importedComponents.has(rule.to)) {
+          newSpecifiers.push(t.importSpecifier(t.identifier(rule.to), t.identifier(rule.to)));
         }
-        if (!hasSelectOutLineExt) {
-          newSpecifiers.push(t.importSpecifier(t.identifier('SelectOutLineExt'), t.identifier('SelectOutLineExt')));
-        }
+      });
 
+      if (newSpecifiers.length > 0) {
         if (antdExtImport) {
-          // 如果已存在 @m-tools/antd-ext 的导入，则添加新的 specifiers
+          // 如果已存在相应的导入，则添加新的 specifiers
           antdExtImport.node.specifiers.push(...newSpecifiers);
         } else {
           // 如果不存在，则创建新的导入声明
-          const newImport = t.importDeclaration(newSpecifiers, t.stringLiteral('@m-tools/antd-ext'));
+          const newImport = t.importDeclaration(newSpecifiers, t.stringLiteral(componentReplaceRules[0].importFrom));
           path.node.body.unshift(newImport);
         }
       }
@@ -126,10 +143,10 @@ async function replaceAndFormatComponents(code: string): Promise<string> {
   const output = generate(ast, { retainLines: true, concise: false });
   const formattedCode = await prettier.format(output.code, {
     parser: 'typescript',
-    singleQuote: true,
+    singleQuote: false, // 使用双引号
     trailingComma: 'es5',
     bracketSpacing: true,
-    jsxBracketSameLine: false,
+    jsxBracketSameLine: true, // 闭合标签放在新的一行
     semi: true,
     printWidth: 100,
   });
@@ -138,22 +155,4 @@ async function replaceAndFormatComponents(code: string): Promise<string> {
 }
 
 export function deactivate() {}
-
-// Format the code using Prettier
-const prettierConfig = {
-  parser: 'typescript',
-  singleQuote: true,
-//   trailingComma: 'es5',
-  bracketSpacing: true,
-  jsxBracketSameLine: false,
-  semi: true,
-  printWidth: 100,
-};
-
-prettier.format(replaceAndFormatComponents.toString(), prettierConfig).then(formattedCode => {
-  console.log('Formatted code:');
-  console.log(formattedCode);
-}).catch(error => {
-  console.error('Error formatting code:', error);
-});
 
